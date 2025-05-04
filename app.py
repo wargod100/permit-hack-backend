@@ -2,6 +2,7 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import dotenv
 import asyncio
+import os
 from src.agent import process_query
 from src.permissions import get_permit_users, update_user_role
 from src.constants import USERS
@@ -10,6 +11,13 @@ dotenv.load_dotenv()
 
 app = Flask(__name__)
 CORS(app)
+
+@app.route('/')
+def index():
+    return jsonify({
+        'status': 'ok',
+        'message': 'Server is running'
+    })
 
 @app.route('/api/login', methods=['POST'])
 def login():
@@ -82,4 +90,5 @@ async def manage_role(action):
         return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
-    app.run(debug=True) 
+    port = int(os.environ.get('PORT', 8000))
+    app.run(host='0.0.0.0', port=port) 
