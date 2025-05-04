@@ -5,8 +5,6 @@ from src.constants import (
     PERMIT_API_URL, PERMIT_PROJECT_ID, PERMIT_ENVIRONMENT_ID,
     PERMIT_API_KEY, PERMIT_PDP_URL, USERS, PERMISSION_TYPES
 )
-from functools import lru_cache
-from time import time
 
 load_dotenv()
 
@@ -20,23 +18,10 @@ permit = Permit(
     pdp=PERMIT_PDP_URL,
 )
 
-# Cache for synced users - key: username, value: (timestamp, success)
-SYNC_CACHE = {}
-SYNC_CACHE_TTL = 300  # 5 minutes
-
-@lru_cache(maxsize=100)
 async def sync_user(username: str):
     """
-    Sync a user with Permit.io with caching
+    Sync a user with Permit.io
     """
-    current_time = time()
-    
-    # Check cache
-    if username in SYNC_CACHE:
-        last_sync_time, success = SYNC_CACHE[username]
-        if current_time - last_sync_time < SYNC_CACHE_TTL:
-            return success, "User sync status from cache"
-    
     if username not in USERS:
         return False, "Invalid user"
     
@@ -46,10 +31,8 @@ async def sync_user(username: str):
             "key": user["key"],
             "email": user["email"]
         })
-        SYNC_CACHE[username] = (current_time, True)
         return True, "User synced successfully"
     except Exception as e:
-        SYNC_CACHE[username] = (current_time, False)
         return False, f"Error syncing user: {str(e)}"
 
 async def check_permission(username: str, permission_name: str) -> tuple[bool, str]:
@@ -65,7 +48,7 @@ async def check_permission(username: str, permission_name: str) -> tuple[bool, s
         return False, f"Unknown permission type: {permission_name}"
     
     try:
-        # First sync the user with caching
+        # First sync the user
         sync_success, sync_message = await sync_user(username)
         if not sync_success:
             return False, sync_message
