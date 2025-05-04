@@ -2,7 +2,7 @@ import requests
 import openai
 from pinecone import Pinecone
 from langchain_openai import OpenAIEmbeddings
-from gitingest import ingest
+from gitingest import ingest_async as ingest
 from src.constants import (
     OPENAI_API_KEY, PINECONE_API_KEY, GITHUB_API_KEY,
     GITHUB_API_REPO_URL, GITHUB_REPO_URL
@@ -228,18 +228,26 @@ Format the response with appropriate sections like:
     
     return response.choices[0].message.content
 
-def get_repo_context(query):
+async def get_repo_context(query):
     if not GITHUB_REPO_URL:
         return {"error": "GitHub repo URL not configured"}
     
     try:
-        repo_data = ingest(GITHUB_REPO_URL)
+        repo_data = await ingest(GITHUB_REPO_URL)
+        if not repo_data:
+            return {"error": "No repository data found"}
+            
         processed_response = process_repo_query(query, repo_data)
         return {
             "data": processed_response,
             "raw_data": repo_data
         }
     except Exception as e:
+        if hasattr(e, '__await__'):
+            try:
+                await e
+            except Exception as actual_error:
+                return {"error": f"Error accessing repository: {str(actual_error)}"}
         return {"error": f"Error accessing repository: {str(e)}"}
 
 def classify_action_with_ai(query: str) -> str:

@@ -135,7 +135,7 @@ async def process_query(user_id: str, query: str) -> Dict[str, Any]:
         action_handlers = {
             "onboarding_query": (fetch_onboarding_data, format_onboarding_response, "text"),
             "github_issues": (create_github_issue, format_github_issue_response, "text"),
-            "repo_query": (get_repo_context, format_repo_query_response, "text"),
+            "code_query": (get_repo_context, format_repo_query_response, "text"),
             "create_image": (create_image, format_image_gen_response, "image")
         }
         
@@ -146,7 +146,13 @@ async def process_query(user_id: str, query: str) -> Dict[str, Any]:
             }
             
         handler_func, formatter_func, response_type = action_handlers[action_type]
-        result = handler_func(query)
+        
+        # Handle async functions
+        if action_type == "code_query":
+            result = await handler_func(query)
+        else:
+            result = handler_func(query)
+            
         formatted_response = formatter_func(result)
             
         return {
