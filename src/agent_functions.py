@@ -2,7 +2,7 @@ import requests
 import openai
 from pinecone import Pinecone
 from langchain_openai import OpenAIEmbeddings
-from gitingest import ingest_async as ingest
+from base64 import b64decode
 from src.constants import (
     OPENAI_API_KEY, PINECONE_API_KEY, GITHUB_API_KEY,
     GITHUB_API_REPO_URL, GITHUB_REPO_URL
@@ -233,22 +233,30 @@ async def get_repo_context(query):
         return {"error": "GitHub repo URL not configured"}
     
     try:
-        repo_data = await ingest(GITHUB_REPO_URL)
-        if not repo_data:
-            return {"error": "No repository data found"}
+        # Extract owner and repo from GITHUB_REPO_URL
+        # Format: https://github.com/owner/repo
+        parts = GITHUB_REPO_URL.rstrip('/').split('/')
+        owner = parts[-2]
+        repo = parts[-1]
+        
+        # Get README content using GitHub API
+        readme_url = f"https://api.github.com/repos/{owner}/{repo}/readme"
+        headers = {"Authorization": f"token {GITHUB_API_KEY}"}
+        
+        response = requests.get(readme_url, headers=headers)
+        if response.status_code != 200:
+            return {"error": f"Failed to fetch repository README: {response.status_code}"}
             
-        processed_response = process_repo_query(query, repo_data)
+        readme_data = response.json()
+        readme_content = b64decode(readme_data['content']).decode('utf-8')
+            
+        processed_response = process_repo_query(query, readme_content)
         return {
             "data": processed_response,
-            "raw_data": repo_data
+            "raw_data": readme_content
         }
     except Exception as e:
-        if hasattr(e, '__await__'):
-            try:
-                await e
-            except Exception as actual_error:
-                return {"error": f"Error accessing repository: {str(actual_error)}"}
-        return {"error": f"Error accessing repository: {str(e)}"}
+        return {"error": f"Repository access error: {str(e)}"}
 
 def classify_action_with_ai(query: str) -> str:
     prompt = f"""Classify this user query into one of the following action types:

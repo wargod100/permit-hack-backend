@@ -5,6 +5,8 @@ from src.constants import (
     PERMIT_API_URL, PERMIT_PROJECT_ID, PERMIT_ENVIRONMENT_ID,
     PERMIT_API_KEY, PERMIT_PDP_URL, USERS, PERMISSION_TYPES
 )
+from functools import lru_cache
+from time import time
 
 load_dotenv()
 
@@ -18,103 +20,74 @@ permit = Permit(
     pdp=PERMIT_PDP_URL,
 )
 
+# Cache for synced users - key: username, value: (timestamp, success)
+SYNC_CACHE = {}
+SYNC_CACHE_TTL = 300  # 5 minutes
+
+@lru_cache(maxsize=100)
 async def sync_user(username: str):
     """
-    Sync a user with Permit.io
+    Sync a user with Permit.io with caching
     """
+    current_time = time()
+    
+    # Check cache
+    if username in SYNC_CACHE:
+        last_sync_time, success = SYNC_CACHE[username]
+        if current_time - last_sync_time < SYNC_CACHE_TTL:
+            return success, "User sync status from cache"
+    
     if username not in USERS:
         return False, "Invalid user"
     
     user = USERS[username]
     try:
-        # Sync user with Permit.io - only sending required fields
         await permit.api.sync_user({
             "key": user["key"],
             "email": user["email"]
         })
+        SYNC_CACHE[username] = (current_time, True)
         return True, "User synced successfully"
     except Exception as e:
-        print(f"Error syncing user: {str(e)}")
+        SYNC_CACHE[username] = (current_time, False)
         return False, f"Error syncing user: {str(e)}"
 
 async def check_permission(username: str, permission_name: str) -> tuple[bool, str]:
     """
     Check if a user has a specific permission using Permit
     """
-    print(f"\n=== Permission Check Debug ===")
-    print(f"Username: {username}")
-    print(f"Permission name: {permission_name}")
-    print(f"PDP URL: {PERMIT_PDP_URL}")
-    print(f"API Key exists: {'Yes' if PERMIT_API_KEY else 'No'}")
-    
     if username not in USERS:
-        print("User not found in database")
         return False, "Invalid user"
     
     user = USERS[username]
-    print(f"\nUser details:")
-    print(f"Key: {user['key']}")
-    print(f"Email: {user['email']}")
-    print(f"Role: {user['role']}")
-    
     permission_config = PERMISSION_TYPES.get(permission_name)
     if not permission_config:
-        print(f"Unknown permission type: {permission_name}")
         return False, f"Unknown permission type: {permission_name}"
     
     try:
-        print("\nPermit check details:")
-        print(f"Action: {permission_config['action']}")
-        print(f"Resource: {permission_config['resource']}")
-        
-        # First sync the user
-        print("\nSyncing user...")
+        # First sync the user with caching
         sync_success, sync_message = await sync_user(username)
-        print(f"Sync result: {sync_message}")
         if not sync_success:
             return False, sync_message
             
-        # Try direct permission check
-        print("\nAttempting permission check...")
-        try:
-            # Try with just the key
-            allowed = await permit.check(
-                user["key"],
-                permission_config["action"],
-                permission_config["resource"]
-            )
-            print(f"Permission check result (using key): {allowed}")
-            
-            if not allowed:
-                # Try with email as fallback
-                allowed = await permit.check(
-                    user["email"],
-                    permission_config["action"],
-                    permission_config["resource"]
-                )
-                print(f"Permission check result (using email): {allowed}")
-        except Exception as check_error:
-            print(f"Permission check error: {str(check_error)}")
-            allowed = False
+        # Single permission check using user key
+        allowed = await permit.check(
+            user["key"],
+            permission_config["action"],
+            permission_config["resource"]
+        )
         
-        print(f"\nFinal permission result: {allowed}")
         reason = "Permission granted" if allowed else "You don't have permission to perform this action"
         return allowed, reason
         
     except Exception as e:
-        print(f"Error in permission check: {str(e)}")
         return False, f"Error checking permissions: {str(e)}"
 
 async def check_action_permission(user_id: str, action_type: str) -> tuple[bool, str]:
     """
     Check if a user has permission for a specific action
     """
-    print(f"\nChecking action permission:")
-    print(f"User ID: {user_id}")
-    print(f"Action type: {action_type}")
-    
     if action_type not in PERMISSION_TYPES:
-        print(f"Unknown action type: {action_type}")
         return False, f"Unknown action type: {action_type}"
     
     return await check_permission(user_id, action_type)

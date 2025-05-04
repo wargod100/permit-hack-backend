@@ -13,6 +13,5 @@ langchain-text-splitters
 langchain
 langchain-community
 pypdf
-gitingest
 openai-agents
 langchain-permit
